@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.example.webrtcfiletransfer" />
+                  <option name="mobileSdkAppId" value="1:186726312375:android:8f5aecdd6578ee0d43e032" />
+                  <option name="projectId" value="webrtc-file-transfer-5805c" />
+                  <option name="projectNumber" value="186726312375" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

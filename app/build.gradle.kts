@@ -1,16 +1,20 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    // Add the Google services plugin
+    id("com.google.gms.google-services")
+    // Kotlin Annotation Processing Tool
+    kotlin("kapt")
 }
 
 android {
-    namespace = "com.example.webrtcfiletransfer"
-    compileSdk = 36
+    namespace = "com.example.webrtcfiletransfer" // Make sure this matches your package name
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.example.webrtcfiletransfer"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -27,22 +31,49 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "1.8"
+    }
+    // Enable View Binding
+    buildFeatures {
+        viewBinding = true
     }
 }
 
 dependencies {
 
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
-    implementation(libs.androidx.activity)
-    implementation(libs.androidx.constraintlayout)
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+
+    // Firebase Bill of Materials (BoM)
+    implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
+    // Firebase Authentication
+    implementation("com.google.firebase:firebase-auth-ktx")
+    // Firebase Firestore
+    implementation("com.google.firebase:firebase-firestore-ktx")
+
+    // WebRTC
+    implementation("com.mesibo.api:webrtc:1.0.5")
+
+    // Gson for JSON serialization/deserialization
+    implementation("com.google.code.gson:gson:2.10.1")
+
+    // MVVM & Lifecycle Components
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
+    implementation("androidx.activity:activity-ktx:1.8.2")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
+
+    // Coroutines for asynchronous programming
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
 }
