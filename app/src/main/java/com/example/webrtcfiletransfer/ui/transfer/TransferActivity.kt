@@ -11,13 +11,14 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
+import com.example.webrtcfiletransfer.data.model.FileMetaData
 import com.example.webrtcfiletransfer.data.model.FileTransferData
 import com.example.webrtcfiletransfer.data.model.SignalData
 import com.example.webrtcfiletransfer.databinding.ActivityTransferBinding
+import com.example.webrtcfiletransfer.ui.BaseActivity
 import com.example.webrtcfiletransfer.util.WebRTCClient
 import com.example.webrtcfiletransfer.util.WebRTCListener
-import com.example.webrtcfiletransfer.viewmodel.TransferViewModel
+import com.example.webrtcfiletransfer.viewmodel.MainViewModel
 import com.google.gson.Gson
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
@@ -28,11 +29,11 @@ import java.nio.charset.StandardCharsets
 import java.text.CharacterIterator
 import java.text.StringCharacterIterator
 
-class TransferActivity : AppCompatActivity(), WebRTCListener {
+class TransferActivity : BaseActivity(), WebRTCListener {
 
     private val TAG = "TransferActivity"
     private lateinit var binding: ActivityTransferBinding
-    private val viewModel: TransferViewModel by viewModels()
+    private val mainViewModel: MainViewModel by viewModels()
     private val gson = Gson()
 
     private lateinit var webRTCClient: WebRTCClient
@@ -41,7 +42,6 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
     private var isCaller = false
     private var selectedFileUri: Uri? = null
 
-    // Buffer for received file data
     private var receivedFileContent: ByteArray? = null
     private var receivedFilename: String? = null
 
@@ -60,7 +60,6 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
         }
     }
 
-    // Activity Result Launcher for saving the file.
     private val saveFileLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -83,7 +82,7 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
         targetUsername = intent.getStringExtra("target_username")
         isCaller = intent.getBooleanExtra("is_caller", true)
 
-        if (targetUserId == null || targetUsername == null) {
+        if (targetUserId == null) {
             finish()
             return
         }
@@ -93,19 +92,23 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
         setupClickListeners()
         setupObservers()
 
+        // If this user is the caller, they can select a file to send a request.
+        // If they are the receiver, they are here because they accepted a request.
         if (isCaller) {
-            webRTCClient.createOffer()
+            binding.btnSelectFile.isEnabled = true
+        } else {
+            binding.tvConnectionStatus.text = "Status: Accepted. Waiting for connection..."
         }
     }
 
     private fun setupClickListeners() {
         binding.btnSelectFile.setOnClickListener { openFilePicker() }
-        binding.btnSendFile.setOnClickListener { sendFile() }
+        binding.btnSendFile.setOnClickListener { sendFileRequest() }
         binding.btnSaveFile.setOnClickListener {
             receivedFilename?.let { filename ->
                 val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*" // You can be more specific if you know the mime type
+                    type = "*/*"
                     putExtra(Intent.EXTRA_TITLE, filename)
                 }
                 saveFileLauncher.launch(intent)
@@ -118,63 +121,111 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
         filePickerLauncher.launch(intent)
     }
 
-    private fun sendFile() {
+    // This sends a request on the APP_EVENTS channel
+    private fun sendFileRequest() {
         selectedFileUri?.let { uri ->
             try {
                 val filename = getFileName(uri) ?: "unknown_file"
-                val inputStream = contentResolver.openInputStream(uri)
-                val fileBytes = inputStream?.readBytes()
-                inputStream?.close()
-
-                if (fileBytes != null) {
-                    val base64Data = Base64.encodeToString(fileBytes, Base64.DEFAULT)
-                    val fileTransferData = FileTransferData(filename, base64Data)
-                    val json = gson.toJson(fileTransferData)
-                    webRTCClient.sendData(ByteBuffer.wrap(json.toByteArray(StandardCharsets.UTF_8)))
-                    Toast.makeText(this, "Sending file...", Toast.LENGTH_SHORT).show()
+                val fileSize = getFileSize(uri)
+                if (fileSize == null || fileSize == 0L) {
+                    Toast.makeText(this, "Cannot send empty or invalid file", Toast.LENGTH_SHORT).show()
+                    return
                 }
-            } catch (e: IOException) {
-                Log.e(TAG, "Error reading or sending file", e)
-                Toast.makeText(this, "Error sending file", Toast.LENGTH_SHORT).show()
+
+                val metadata = FileMetaData(filename, fileSize)
+                val signal = SignalData(type = "TRANSFER_REQUEST", fileMetaData = metadata)
+                targetUserId?.let { mainViewModel.sendAppEvent(it, signal) }
+
+                binding.tvConnectionStatus.text = "Status: Waiting for receiver to accept..."
+                binding.btnSendFile.isEnabled = false
+                binding.btnSelectFile.isEnabled = false
+                Log.d(TAG, "Sent TRANSFER_REQUEST for file $filename ($fileSize bytes)")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating transfer request", e)
+                Toast.makeText(this, "Error creating transfer request", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun setupObservers() {
-        viewModel.signalData.observe(this) { (sender, signal) ->
-            Log.d(TAG, "Received signal: ${signal.type} from $sender")
-            when (signal.type) {
-                "OFFER" -> {
-                    signal.sdp?.let {
-                        val sdp = SessionDescription(SessionDescription.Type.OFFER, it)
-                        webRTCClient.onRemoteSessionReceived(sdp)
-                        isRemoteDescriptionSet = true
-                        drainIceCandidateBuffer()
-                        webRTCClient.createAnswer()
-                    }
-                }
-                "ANSWER" -> {
-                    signal.sdp?.let {
-                        val sdp = SessionDescription(SessionDescription.Type.ANSWER, it)
-                        webRTCClient.onRemoteSessionReceived(sdp)
-                        isRemoteDescriptionSet = true
-                        drainIceCandidateBuffer()
-                    }
-                }
-                "ICE_CANDIDATE" -> {
-                    if (signal.sdp != null && signal.sdpMid != null && signal.sdpMLineIndex != null) {
-                        val candidate = IceCandidate(signal.sdpMid, signal.sdpMLineIndex, signal.sdp)
-                        if (isRemoteDescriptionSet) {
-                            webRTCClient.addIceCandidate(candidate)
-                        } else {
-                            remoteIceCandidateBuffer.add(candidate)
-                        }
-                    }
+    private fun getFileSize(uri: Uri): Long? {
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (!cursor.isNull(sizeIndex)) {
+                    return cursor.getLong(sizeIndex)
                 }
             }
         }
-        viewModel.signalError.observe(this) { error ->
-            Toast.makeText(this, "Signaling error: $error", Toast.LENGTH_LONG).show()
+        return null
+    }
+
+    private fun setupObservers() {
+        // This activity now only cares about WebRTC signals.
+        // App events (like transfer reject/accept) are handled by the dialog or this activity's response.
+        mainViewModel.webrtcSignalEvent.observe(this) { event ->
+            event?.let { (sender, signal) ->
+                Log.d(TAG, "Received WebRTC signal: ${signal.type} from $sender")
+                if (sender != targetUserId) {
+                    Log.w(TAG, "Received signal from unexpected sender: $sender, expecting $targetUserId")
+                    return@observe
+                }
+
+                when (signal.type) {
+                    "OFFER" -> {
+                        if(!isCaller) {
+                            signal.sdp?.let {
+                                val sdp = SessionDescription(SessionDescription.Type.OFFER, it)
+                                webRTCClient.onRemoteSessionReceived(sdp)
+                                isRemoteDescriptionSet = true
+                                drainIceCandidateBuffer()
+                                webRTCClient.createAnswer()
+                            }
+                        }
+                    }
+                    "ANSWER" -> {
+                        if(isCaller) {
+                            signal.sdp?.let {
+                                val sdp = SessionDescription(SessionDescription.Type.ANSWER, it)
+                                webRTCClient.onRemoteSessionReceived(sdp)
+                                isRemoteDescriptionSet = true
+                                drainIceCandidateBuffer()
+                            }
+                        }
+                    }
+                    "ICE_CANDIDATE" -> {
+                        if (signal.sdp != null && signal.sdpMid != null && signal.sdpMLineIndex != null) {
+                            val candidate = IceCandidate(signal.sdpMid, signal.sdpMLineIndex, signal.sdp)
+                            if (isRemoteDescriptionSet) {
+                                webRTCClient.addIceCandidate(candidate)
+                            } else {
+                                remoteIceCandidateBuffer.add(candidate)
+                            }
+                        }
+                    }
+                }
+                mainViewModel.consumeWebRTCSignalEvent()
+            }
+        }
+
+        // We also need to observe app events to know if the other user rejected our request
+        mainViewModel.incomingAppEvent.observe(this) { event ->
+            event?.let { (sender, signal) ->
+                if (sender == targetUserId && signal.type == "TRANSFER_REJECT") {
+                    if(isCaller) {
+                        Log.d(TAG, "Receiver rejected the transfer.")
+                        Toast.makeText(this, "Receiver rejected the file transfer.", Toast.LENGTH_LONG).show()
+                        finish()
+                    }
+                } else if (sender == targetUserId && signal.type == "TRANSFER_ACCEPT") {
+                    if(isCaller) {
+                        Log.d(TAG, "Receiver accepted the transfer. Creating WebRTC offer.")
+                        binding.tvConnectionStatus.text = "Status: Receiver accepted, connecting..."
+                        webRTCClient.createOffer()
+                    }
+                }
+                mainViewModel.consumeAppEvent()
+            }
         }
     }
 
@@ -190,15 +241,38 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
         runOnUiThread { binding.tvConnectionStatus.text = "Status: ${state.name}" }
     }
 
+    // This sends a signal on the WEBRTC_SIGNALS channel
     override fun onSignalNeeded(signal: SignalData) {
         Log.d(TAG, "Signal needed: ${signal.type}. Sending to $targetUserId")
-        targetUserId?.let { viewModel.sendSignal(it, signal) }
+        targetUserId?.let { mainViewModel.sendWebRTCSignal(it, signal) }
     }
 
     override fun onDataChannelOpened() {
         runOnUiThread {
-            Toast.makeText(this, "Data Channel Opened! You can now select a file.", Toast.LENGTH_SHORT).show()
-            binding.btnSelectFile.isEnabled = true
+            binding.tvConnectionStatus.text = "Status: Connected"
+            Toast.makeText(this, "Data Channel Opened!", Toast.LENGTH_SHORT).show()
+            if (isCaller) {
+                selectedFileUri?.let { uri ->
+                    try {
+                        val filename = getFileName(uri) ?: "unknown_file"
+                        val inputStream = contentResolver.openInputStream(uri)
+                        val fileBytes = inputStream?.readBytes()
+                        inputStream?.close()
+
+                        if (fileBytes != null) {
+                            val base64Data = Base64.encodeToString(fileBytes, Base64.DEFAULT)
+                            val fileTransferData = FileTransferData(filename, base64Data)
+                            val json = gson.toJson(fileTransferData)
+                            webRTCClient.sendData(ByteBuffer.wrap(json.toByteArray(StandardCharsets.UTF_8)))
+                            binding.tvConnectionStatus.text = "Status: Sending file..."
+                            Toast.makeText(this, "Sending file...", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: IOException) {
+                        Log.e(TAG, "Error reading or sending file", e)
+                        Toast.makeText(this, "Error sending file", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
     }
 
@@ -208,11 +282,9 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
                 val json = StandardCharsets.UTF_8.decode(buffer).toString()
                 val fileData = gson.fromJson(json, FileTransferData::class.java)
 
-                // Store received data in buffer
                 receivedFileContent = Base64.decode(fileData.data, Base64.DEFAULT)
                 receivedFilename = fileData.filename
 
-                // Update UI to show save options
                 binding.llReceivedFile.visibility = View.VISIBLE
                 val fileSizeReadable = humanReadableByteCountSI(receivedFileContent?.size?.toLong() ?: 0)
                 binding.tvFileInfo.text = "Received file: $receivedFilename ($fileSizeReadable)"
@@ -230,7 +302,6 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
                 outputStream.write(content)
             }
             Toast.makeText(this, "File saved successfully!", Toast.LENGTH_LONG).show()
-            // Hide the save UI after saving
             binding.llReceivedFile.visibility = View.GONE
             receivedFileContent = null
             receivedFilename = null
@@ -262,7 +333,6 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
         return result
     }
 
-    // Helper function to format byte count into a human-readable string (e.g., 1.2 MB)
     private fun humanReadableByteCountSI(bytes: Long): String {
         if (-1000 < bytes && bytes < 1000) {
             return "$bytes B"
@@ -279,7 +349,7 @@ class TransferActivity : AppCompatActivity(), WebRTCListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        viewModel.clearSignals()
+        // Clearing signals is now handled by the receiver after processing.
         webRTCClient.close()
     }
 }

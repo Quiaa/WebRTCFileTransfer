@@ -5,32 +5,53 @@ import com.example.webrtcfiletransfer.data.model.FirestoreSignal
 import com.example.webrtcfiletransfer.data.model.SignalData
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.tasks.await
 
-class TransferRepository {
+object TransferRepository {
 
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
+    private const val WEBRTC_SIGNALS_COLLECTION = "webrtc_signals"
+    private const val APP_EVENTS_COLLECTION = "app_events"
 
-    suspend fun sendSignal(targetUserId: String, signalData: SignalData) {
-        val currentUser = auth.currentUser ?: return
-        val firestoreSignal = FirestoreSignal(
-            sender = currentUser.uid,
-            signal = signalData
-        )
-        db.collection("webrtc_signals").document(targetUserId).set(firestoreSignal).await()
+    private val _webrtcSignalFlow = MutableSharedFlow<Pair<String, SignalData>>()
+    val webrtcSignalFlow = _webrtcSignalFlow.asSharedFlow()
+
+    private val _appEventFlow = MutableSharedFlow<Pair<String, SignalData>>()
+    val appEventFlow = _appEventFlow.asSharedFlow()
+
+    suspend fun sendWebRTCSignal(targetUserId: String, signalData: SignalData) {
+        sendSignalToCollection(WEBRTC_SIGNALS_COLLECTION, targetUserId, signalData)
     }
 
-    fun listenForSignals(): Flow<Pair<String, SignalData>> = callbackFlow {
-        val currentUser = auth.currentUser ?: return@callbackFlow
-        val docRef = db.collection("webrtc_signals").document(currentUser.uid)
+    suspend fun sendAppEvent(targetUserId: String, signalData: SignalData) {
+        sendSignalToCollection(APP_EVENTS_COLLECTION, targetUserId, signalData)
+    }
 
-        val listener = docRef.addSnapshotListener { snapshot, error ->
+    private suspend fun sendSignalToCollection(collection: String, targetUserId: String, signalData: SignalData) {
+        val currentUser = auth.currentUser ?: return
+        val firestoreSignal = FirestoreSignal(sender = currentUser.uid, signal = signalData)
+        db.collection(collection).document(targetUserId).set(firestoreSignal).await()
+    }
+
+    fun startListening() {
+        startListeningOnCollection(WEBRTC_SIGNALS_COLLECTION) { sender, signal ->
+            _webrtcSignalFlow.tryEmit(Pair(sender, signal))
+        }
+        startListeningOnCollection(APP_EVENTS_COLLECTION) { sender, signal ->
+            _appEventFlow.tryEmit(Pair(sender, signal))
+        }
+    }
+
+    private fun startListeningOnCollection(collection: String, onSignal: (String, SignalData) -> Unit) {
+        val currentUser = auth.currentUser ?: return
+        val docRef = db.collection(collection).document(currentUser.uid)
+
+        docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                close(error)
+                Log.e("TransferRepository", "Listen error on $collection", error)
                 return@addSnapshotListener
             }
 
@@ -38,21 +59,21 @@ class TransferRepository {
                 try {
                     val receivedSignal = snapshot.toObject(FirestoreSignal::class.java)
                     if (receivedSignal != null && receivedSignal.sender != currentUser.uid) {
-                        Log.d("TransferRepository", "Received signal from: ${receivedSignal.sender}")
-                        trySend(Pair(receivedSignal.sender, receivedSignal.signal))
+                        Log.d("TransferRepository", "Received signal on $collection from: ${receivedSignal.sender}")
+                        onSignal(receivedSignal.sender, receivedSignal.signal)
+                        // After processing, clear the document to prevent re-processing
+                        snapshot.reference.delete()
                     }
                 } catch (e: Exception) {
-                    Log.e("TransferRepository", "Error parsing signal data with toObject()", e)
-                    close(e)
+                    Log.e("TransferRepository", "Error parsing signal on $collection", e)
                 }
             }
         }
-        awaitClose { listener.remove() }
     }
 
-    // Deletes the signaling document for the current user from Firestore.
-    suspend fun clearSignals() {
+    suspend fun clearAllSignalsForCurrentUser() {
         val currentUser = auth.currentUser ?: return
-        db.collection("webrtc_signals").document(currentUser.uid).delete().await()
+        db.collection(WEBRTC_SIGNALS_COLLECTION).document(currentUser.uid).delete().await()
+        db.collection(APP_EVENTS_COLLECTION).document(currentUser.uid).delete().await()
     }
 }

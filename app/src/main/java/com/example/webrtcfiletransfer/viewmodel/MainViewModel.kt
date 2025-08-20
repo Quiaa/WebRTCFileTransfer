@@ -7,31 +7,62 @@ import androidx.lifecycle.viewModelScope
 import com.example.webrtcfiletransfer.data.model.SignalData
 import com.example.webrtcfiletransfer.data.model.User
 import com.example.webrtcfiletransfer.data.repository.MainRepository
+import com.example.webrtcfiletransfer.data.repository.TransferRepository
 import com.example.webrtcfiletransfer.util.Resource
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 class MainViewModel : ViewModel() {
 
-    private val repository = MainRepository()
+    private val mainRepository = MainRepository()
+    private val transferRepository = TransferRepository
 
     private val _usersState = MutableLiveData<Resource<List<User>>>()
     val usersState: LiveData<Resource<List<User>>> = _usersState
 
-    // LiveData to notify the UI about an incoming call offer.
-    private val _incomingOffer = MutableLiveData<Pair<String, SignalData>>()
-    val incomingOffer: LiveData<Pair<String, SignalData>> = _incomingOffer
+    // LiveData for app-level events (e.g., transfer requests for the global dialog)
+    private val _incomingAppEvent = MutableLiveData<Pair<String, SignalData>?>()
+    val incomingAppEvent: LiveData<Pair<String, SignalData>?> = _incomingAppEvent
+
+    // LiveData for WebRTC signals (for TransferActivity)
+    private val _webrtcSignalEvent = MutableLiveData<Pair<String, SignalData>?>()
+    val webrtcSignalEvent: LiveData<Pair<String, SignalData>?> = _webrtcSignalEvent
 
     init {
-        // Start listening for offers as soon as the ViewModel is created.
-        listenForIncomingOffers()
+        // The listener is started in MyApplication, so we just need to observe the signals.
+        observeAppEvents()
+        observeWebRTCSignals()
+        getUsers() // Fetch users on init
+    }
+
+    private fun observeAppEvents() {
+        viewModelScope.launch {
+            transferRepository.appEventFlow.collect { (sender, signal) ->
+                _incomingAppEvent.postValue(Pair(sender, signal))
+            }
+        }
+    }
+
+    private fun observeWebRTCSignals() {
+        viewModelScope.launch {
+            transferRepository.webrtcSignalFlow.collect { (sender, signal) ->
+                _webrtcSignalEvent.postValue(Pair(sender, signal))
+            }
+        }
+    }
+
+    fun consumeAppEvent() {
+        _incomingAppEvent.value = null
+    }
+
+    fun consumeWebRTCSignalEvent() {
+        _webrtcSignalEvent.value = null
     }
 
     fun getUsers() {
         viewModelScope.launch {
             _usersState.value = Resource.Loading()
             try {
-                val users = repository.getUsers()
+                val users = mainRepository.getUsers()
                 _usersState.value = Resource.Success(users)
             } catch (e: Exception) {
                 _usersState.value = Resource.Error(e.message ?: "Failed to fetch users.")
@@ -39,19 +70,19 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    private fun listenForIncomingOffers() {
+    fun signOut() {
+        mainRepository.signOut()
+    }
+
+    fun sendAppEvent(targetUserId: String, signalData: SignalData) {
         viewModelScope.launch {
-            repository.listenForIncomingOffers()
-                .catch { e ->
-                    // Handle potential errors from the flow.
-                }
-                .collect { (sender, signal) ->
-                    _incomingOffer.postValue(Pair(sender, signal))
-                }
+            transferRepository.sendAppEvent(targetUserId, signalData)
         }
     }
 
-    fun signOut() {
-        repository.signOut()
+    fun sendWebRTCSignal(targetUserId: String, signalData: SignalData) {
+        viewModelScope.launch {
+            transferRepository.sendWebRTCSignal(targetUserId, signalData)
+        }
     }
 }

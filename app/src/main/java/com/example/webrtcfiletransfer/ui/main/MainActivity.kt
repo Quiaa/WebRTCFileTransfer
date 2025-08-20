@@ -7,15 +7,15 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
 import com.example.webrtcfiletransfer.R
 import com.example.webrtcfiletransfer.databinding.ActivityMainBinding
+import com.example.webrtcfiletransfer.ui.BaseActivity
 import com.example.webrtcfiletransfer.ui.auth.LoginActivity
 import com.example.webrtcfiletransfer.ui.transfer.TransferActivity
 import com.example.webrtcfiletransfer.util.Resource
 import com.example.webrtcfiletransfer.viewmodel.MainViewModel
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainViewModel by viewModels()
@@ -78,20 +78,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Observer for incoming calls.
-        viewModel.incomingOffer.observe(this) { (senderId, signal) ->
-            // Find the username of the sender from our user list.
-            val senderUsername = (viewModel.usersState.value as? Resource.Success)?.data
-                ?.find { it.uid == senderId }?.username ?: "Unknown"
-
-            // When an offer is received, this user becomes the RECEIVER.
-            val intent = Intent(this, TransferActivity::class.java).apply {
-                putExtra("target_user_id", senderId)
-                putExtra("target_username", senderUsername)
-                putExtra("is_caller", false) // Explicitly set this user as the receiver.
-            }
-            startActivity(intent)
-        }
+        // The logic for observing incoming offers is now handled globally by BaseActivity
+        // which will show a DialogFragment for new transfer requests.
     }
 
     private fun goToLoginActivity() {

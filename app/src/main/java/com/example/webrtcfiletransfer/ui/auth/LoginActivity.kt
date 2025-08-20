@@ -5,14 +5,14 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
 import com.example.webrtcfiletransfer.databinding.ActivityLoginBinding
+import com.example.webrtcfiletransfer.ui.BaseActivity
 import com.example.webrtcfiletransfer.ui.main.MainActivity
 import com.example.webrtcfiletransfer.util.Resource
 import com.example.webrtcfiletransfer.viewmodel.AuthViewModel
 import com.google.firebase.auth.FirebaseAuth
 
-class LoginActivity : AppCompatActivity() {
+class LoginActivity : BaseActivity() {
 
     private lateinit var binding: ActivityLoginBinding
     private val viewModel: AuthViewModel by viewModels()
