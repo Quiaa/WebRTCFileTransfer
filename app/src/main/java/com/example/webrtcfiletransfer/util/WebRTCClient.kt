@@ -3,10 +3,10 @@ package com.example.webrtcfiletransfer.util
 import android.app.Application
 import android.util.Log
 import com.example.webrtcfiletransfer.data.model.SignalData
+import com.google.gson.Gson
 import org.webrtc.*
 import java.nio.ByteBuffer
 
-// Listener interface to communicate WebRTC events back to the calling activity.
 interface WebRTCListener {
     fun onConnectionStateChange(state: PeerConnection.IceConnectionState)
     fun onSignalNeeded(signal: SignalData)
@@ -20,12 +20,10 @@ class WebRTCClient(
 ) {
     private val TAG = "WebRTCClient"
 
-    // List of STUN/TURN servers for NAT traversal.
     private val iceServer = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
     )
 
-    // Factory for creating PeerConnection instances.
     private val peerConnectionFactory by lazy {
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(application)
@@ -40,11 +38,9 @@ class WebRTCClient(
     private var peerConnection: PeerConnection? = null
     private var dataChannel: DataChannel? = null
 
-    // Observer for PeerConnection events.
     private val peerConnectionObserver = object : PeerConnection.Observer {
         override fun onIceCandidate(candidate: IceCandidate?) {
             candidate?.let {
-                // Create a SignalData object with the candidate's properties.
                 val signal = SignalData(
                     type = "ICE_CANDIDATE",
                     sdp = it.sdp,
@@ -81,7 +77,10 @@ class WebRTCClient(
     init {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServer)
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, peerConnectionObserver)
-        val dcInit = DataChannel.Init()
+        // Increase the buffer size for larger data transfers.
+        val dcInit = DataChannel.Init().apply {
+            maxRetransmits = 30
+        }
         dataChannel = peerConnection?.createDataChannel("fileChannel", dcInit)
         setupDataChannelObserver()
     }
@@ -106,7 +105,6 @@ class WebRTCClient(
             sdp?.let {
                 peerConnection?.setLocalDescription(this, it)
                 val signalType = if (it.type == SessionDescription.Type.OFFER) "OFFER" else "ANSWER"
-                // Create a SignalData object with the SDP.
                 val signal = SignalData(type = signalType, sdp = it.description)
                 listener.onSignalNeeded(signal)
             }
@@ -134,8 +132,8 @@ class WebRTCClient(
         peerConnection?.addIceCandidate(candidate)
     }
 
-    fun sendFile(data: ByteBuffer) {
-        val buffer = DataChannel.Buffer(data, true) // true for binary data
+    fun sendData(data: ByteBuffer) {
+        val buffer = DataChannel.Buffer(data, false) // false for text data (JSON)
         dataChannel?.send(buffer)
     }
 

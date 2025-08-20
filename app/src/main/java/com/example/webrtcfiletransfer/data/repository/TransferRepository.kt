@@ -15,52 +15,44 @@ class TransferRepository {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
-    // This function sends the signal data to the target user.
     suspend fun sendSignal(targetUserId: String, signalData: SignalData) {
         val currentUser = auth.currentUser ?: return
-
-        // Create an instance of our structured data class.
         val firestoreSignal = FirestoreSignal(
             sender = currentUser.uid,
             signal = signalData
         )
-
-        // Firestore automatically serializes the entire firestoreSignal object.
         db.collection("webrtc_signals").document(targetUserId).set(firestoreSignal).await()
     }
 
-    // This function listens for incoming signals.
     fun listenForSignals(): Flow<Pair<String, SignalData>> = callbackFlow {
         val currentUser = auth.currentUser ?: return@callbackFlow
         val docRef = db.collection("webrtc_signals").document(currentUser.uid)
 
         val listener = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                close(error) // Close the flow on error.
+                close(error)
                 return@addSnapshotListener
             }
 
             if (snapshot != null && snapshot.exists()) {
                 try {
-                    // Use toObject() for safe and automatic conversion from Firestore document to our data class.
                     val receivedSignal = snapshot.toObject(FirestoreSignal::class.java)
-
-                    if (receivedSignal != null) {
-                        // CRITICAL FIX: Ignore signals sent by the current user.
-                        if (receivedSignal.sender != currentUser.uid) {
-                            Log.d("TransferRepository", "Received signal from: ${receivedSignal.sender}")
-                            // Send the valid signal to the ViewModel.
-                            trySend(Pair(receivedSignal.sender, receivedSignal.signal))
-                        }
+                    if (receivedSignal != null && receivedSignal.sender != currentUser.uid) {
+                        Log.d("TransferRepository", "Received signal from: ${receivedSignal.sender}")
+                        trySend(Pair(receivedSignal.sender, receivedSignal.signal))
                     }
                 } catch (e: Exception) {
                     Log.e("TransferRepository", "Error parsing signal data with toObject()", e)
-                    close(e) // Close flow on parsing error.
+                    close(e)
                 }
             }
         }
-        // This block is called when the flow is cancelled.
-        // It's important to remove the Firestore listener to prevent memory leaks.
         awaitClose { listener.remove() }
+    }
+
+    // Deletes the signaling document for the current user from Firestore.
+    suspend fun clearSignals() {
+        val currentUser = auth.currentUser ?: return
+        db.collection("webrtc_signals").document(currentUser.uid).delete().await()
     }
 }

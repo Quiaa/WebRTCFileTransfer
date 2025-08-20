@@ -13,20 +13,16 @@ class TransferViewModel : ViewModel() {
 
     private val repository = TransferRepository()
 
-    // LiveData to hold incoming signaling data.
     private val _signalData = MutableLiveData<Pair<String, SignalData>>()
     val signalData: LiveData<Pair<String, SignalData>> = _signalData
 
-    // LiveData to report any errors during signal listening.
     private val _signalError = MutableLiveData<String>()
     val signalError: LiveData<String> = _signalError
 
     init {
-        // Start listening for signals as soon as the ViewModel is created.
         listenForSignals()
     }
 
-    // Sends a signal to the specified target user.
     fun sendSignal(targetUserId: String, signalData: SignalData) {
         viewModelScope.launch {
             try {
@@ -37,18 +33,26 @@ class TransferViewModel : ViewModel() {
         }
     }
 
-    // Listens for incoming signals and updates the LiveData.
     private fun listenForSignals() {
         viewModelScope.launch {
             repository.listenForSignals()
                 .catch { exception ->
-                    // Handle any errors from the flow.
                     _signalError.postValue("Error listening for signals: ${exception.message}")
                 }
                 .collect { (sender, data) ->
-                    // Post the received data to the LiveData.
                     _signalData.postValue(Pair(sender, data))
                 }
+        }
+    }
+
+    // Function to clear the signals from Firestore.
+    fun clearSignals() {
+        viewModelScope.launch {
+            try {
+                repository.clearSignals()
+            } catch (e: Exception) {
+                _signalError.postValue("Failed to clear signals: ${e.message}")
+            }
         }
     }
 }

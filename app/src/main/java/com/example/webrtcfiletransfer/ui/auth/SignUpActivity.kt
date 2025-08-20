@@ -1,18 +1,19 @@
 package com.example.webrtcfiletransfer.ui.auth
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.example.webrtcfiletransfer.databinding.ActivitySignupBinding
+import com.example.webrtcfiletransfer.ui.main.MainActivity
 import com.example.webrtcfiletransfer.util.Resource
 import com.example.webrtcfiletransfer.viewmodel.AuthViewModel
 
 class SignUpActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySignupBinding
-    // Lazily initialize AuthViewModel using the activity-ktx library.
     private val viewModel: AuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,7 +32,6 @@ class SignUpActivity : AppCompatActivity() {
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString().trim()
 
-            // Basic input validation.
             if (username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty()) {
                 viewModel.signUp(username, email, password)
             } else {
@@ -40,27 +40,31 @@ class SignUpActivity : AppCompatActivity() {
         }
     }
 
-    // Function to set up observers for LiveData from the ViewModel.
     private fun setupObservers() {
         viewModel.signUpState.observe(this) { state ->
             when (state) {
                 is Resource.Loading -> {
-                    // Show progress bar while signing up.
                     binding.progressBar.visibility = View.VISIBLE
                 }
                 is Resource.Success -> {
-                    // Hide progress bar and show success message.
                     binding.progressBar.visibility = View.GONE
-                    Toast.makeText(this, "Sign up successful! Please log in.", Toast.LENGTH_LONG).show()
-                    // Finish this activity to go back to LoginActivity.
-                    finish()
+                    Toast.makeText(this, "Sign up successful!", Toast.LENGTH_LONG).show()
+                    // Navigate directly to MainActivity after successful sign-up.
+                    goToMainActivity()
                 }
                 is Resource.Error -> {
-                    // Hide progress bar and show error message.
                     binding.progressBar.visibility = View.GONE
                     Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
                 }
             }
         }
+    }
+
+    private fun goToMainActivity() {
+        val intent = Intent(this, MainActivity::class.java)
+        // Clear the activity stack to prevent user from going back to auth screens.
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish()
     }
 }

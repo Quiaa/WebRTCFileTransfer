@@ -10,6 +10,7 @@ import com.example.webrtcfiletransfer.databinding.ActivityLoginBinding
 import com.example.webrtcfiletransfer.ui.main.MainActivity
 import com.example.webrtcfiletransfer.util.Resource
 import com.example.webrtcfiletransfer.viewmodel.AuthViewModel
+import com.google.firebase.auth.FirebaseAuth
 
 class LoginActivity : AppCompatActivity() {
 
@@ -18,6 +19,13 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Check if a user is already logged in.
+        if (FirebaseAuth.getInstance().currentUser != null) {
+            goToMainActivity()
+            return // Skip the rest of the onCreate method.
+        }
+
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -48,7 +56,6 @@ class LoginActivity : AppCompatActivity() {
                 is Resource.Success -> {
                     binding.progressBar.visibility = View.GONE
                     Toast.makeText(this, "Login successful!", Toast.LENGTH_SHORT).show()
-                    // Navigate to MainActivity after successful login.
                     goToMainActivity()
                 }
                 is Resource.Error -> {
