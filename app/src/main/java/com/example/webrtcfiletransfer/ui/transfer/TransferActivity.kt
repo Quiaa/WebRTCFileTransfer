@@ -164,11 +164,11 @@ class TransferActivity : BaseActivity(), WebRTCListener {
         // This activity now only cares about WebRTC signals.
         // App events (like transfer reject/accept) are handled by the dialog or this activity's response.
         mainViewModel.webrtcSignalEvent.observe(this) { event ->
-            event?.let { (sender, signal) ->
+            event.getContentIfNotHandled()?.let { (sender, signal) ->
                 Log.d(TAG, "Received WebRTC signal: ${signal.type} from $sender")
                 if (sender != targetUserId) {
                     Log.w(TAG, "Received signal from unexpected sender: $sender, expecting $targetUserId")
-                    return@observe
+                    return@let
                 }
 
                 when (signal.type) {
@@ -204,13 +204,12 @@ class TransferActivity : BaseActivity(), WebRTCListener {
                         }
                     }
                 }
-                mainViewModel.consumeWebRTCSignalEvent()
             }
         }
 
         // We also need to observe app events to know if the other user rejected our request
         mainViewModel.incomingAppEvent.observe(this) { event ->
-            event?.let { (sender, signal) ->
+            event.getContentIfNotHandled()?.let { (sender, signal) ->
                 if (sender == targetUserId && signal.type == "TRANSFER_REJECT") {
                     if(isCaller) {
                         Log.d(TAG, "Receiver rejected the transfer.")
@@ -224,7 +223,6 @@ class TransferActivity : BaseActivity(), WebRTCListener {
                         webRTCClient.createOffer()
                     }
                 }
-                mainViewModel.consumeAppEvent()
             }
         }
     }

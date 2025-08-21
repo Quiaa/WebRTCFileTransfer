@@ -8,6 +8,7 @@ import com.example.webrtcfiletransfer.data.model.SignalData
 import com.example.webrtcfiletransfer.data.model.User
 import com.example.webrtcfiletransfer.data.repository.MainRepository
 import com.example.webrtcfiletransfer.data.repository.TransferRepository
+import com.example.webrtcfiletransfer.util.Event
 import com.example.webrtcfiletransfer.util.Resource
 import kotlinx.coroutines.launch
 
@@ -20,12 +21,12 @@ class MainViewModel : ViewModel() {
     val usersState: LiveData<Resource<List<User>>> = _usersState
 
     // LiveData for app-level events (e.g., transfer requests for the global dialog)
-    private val _incomingAppEvent = MutableLiveData<Pair<String, SignalData>?>()
-    val incomingAppEvent: LiveData<Pair<String, SignalData>?> = _incomingAppEvent
+    private val _incomingAppEvent = MutableLiveData<Event<Pair<String, SignalData>>>()
+    val incomingAppEvent: LiveData<Event<Pair<String, SignalData>>> = _incomingAppEvent
 
     // LiveData for WebRTC signals (for TransferActivity)
-    private val _webrtcSignalEvent = MutableLiveData<Pair<String, SignalData>?>()
-    val webrtcSignalEvent: LiveData<Pair<String, SignalData>?> = _webrtcSignalEvent
+    private val _webrtcSignalEvent = MutableLiveData<Event<Pair<String, SignalData>>>()
+    val webrtcSignalEvent: LiveData<Event<Pair<String, SignalData>>> = _webrtcSignalEvent
 
     init {
         // The listener is started in MyApplication, so we just need to observe the signals.
@@ -37,7 +38,7 @@ class MainViewModel : ViewModel() {
     private fun observeAppEvents() {
         viewModelScope.launch {
             transferRepository.appEventFlow.collect { (sender, signal) ->
-                _incomingAppEvent.postValue(Pair(sender, signal))
+                _incomingAppEvent.postValue(Event(Pair(sender, signal)))
             }
         }
     }
@@ -45,17 +46,9 @@ class MainViewModel : ViewModel() {
     private fun observeWebRTCSignals() {
         viewModelScope.launch {
             transferRepository.webrtcSignalFlow.collect { (sender, signal) ->
-                _webrtcSignalEvent.postValue(Pair(sender, signal))
+                _webrtcSignalEvent.postValue(Event(Pair(sender, signal)))
             }
         }
-    }
-
-    fun consumeAppEvent() {
-        _incomingAppEvent.value = null
-    }
-
-    fun consumeWebRTCSignalEvent() {
-        _webrtcSignalEvent.value = null
     }
 
     fun getUsers() {

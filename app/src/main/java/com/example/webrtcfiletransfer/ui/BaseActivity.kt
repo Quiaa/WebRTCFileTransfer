@@ -18,7 +18,7 @@ abstract class BaseActivity : AppCompatActivity() {
 
     private fun observeTransferRequests() {
         mainViewModel.incomingAppEvent.observe(this) { event ->
-            event?.let { (senderId, signal) ->
+            event.getContentIfNotHandled()?.let { (senderId, signal) ->
                 if (signal.type == "TRANSFER_REQUEST") {
                     // To prevent showing the dialog multiple times, check if it's already shown
                     if (supportFragmentManager.findFragmentByTag(TransferRequestDialogFragment.TAG) == null) {
@@ -26,8 +26,6 @@ abstract class BaseActivity : AppCompatActivity() {
                         dialog.show(supportFragmentManager, TransferRequestDialogFragment.TAG)
                     }
                 }
-                // Consume the event to prevent it from being shown again on config change
-                mainViewModel.consumeAppEvent()
             }
         }
     }

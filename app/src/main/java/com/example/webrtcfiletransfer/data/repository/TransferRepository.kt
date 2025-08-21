@@ -33,7 +33,7 @@ object TransferRepository {
     private suspend fun sendSignalToCollection(collection: String, targetUserId: String, signalData: SignalData) {
         val currentUser = auth.currentUser ?: return
         val firestoreSignal = FirestoreSignal(sender = currentUser.uid, signal = signalData)
-        db.collection(collection).document(targetUserId).set(firestoreSignal).await()
+        db.collection(collection).document(targetUserId).collection("signals").add(firestoreSignal).await()
     }
 
     fun startListening() {
@@ -45,27 +45,29 @@ object TransferRepository {
         }
     }
 
-    private fun startListeningOnCollection(collection: String, onSignal: (String, SignalData) -> Unit) {
+    private fun startListeningOnCollection(collectionName: String, onSignal: (String, SignalData) -> Unit) {
         val currentUser = auth.currentUser ?: return
-        val docRef = db.collection(collection).document(currentUser.uid)
+        val signalsCollection = db.collection(collectionName).document(currentUser.uid).collection("signals")
 
-        docRef.addSnapshotListener { snapshot, error ->
+        signalsCollection.addSnapshotListener { snapshots, error ->
             if (error != null) {
-                Log.e("TransferRepository", "Listen error on $collection", error)
+                Log.e("TransferRepository", "Listen error on $collectionName", error)
                 return@addSnapshotListener
             }
 
-            if (snapshot != null && snapshot.exists()) {
-                try {
-                    val receivedSignal = snapshot.toObject(FirestoreSignal::class.java)
-                    if (receivedSignal != null && receivedSignal.sender != currentUser.uid) {
-                        Log.d("TransferRepository", "Received signal on $collection from: ${receivedSignal.sender}")
-                        onSignal(receivedSignal.sender, receivedSignal.signal)
-                        // After processing, clear the document to prevent re-processing
-                        snapshot.reference.delete()
+            snapshots?.documentChanges?.forEach { change ->
+                if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                    try {
+                        val receivedSignal = change.document.toObject(FirestoreSignal::class.java)
+                        if (receivedSignal.sender != currentUser.uid) {
+                            Log.d("TransferRepository", "Received signal on $collectionName from: ${receivedSignal.sender}")
+                            onSignal(receivedSignal.sender, receivedSignal.signal)
+                            // After processing, delete the individual signal document
+                            change.document.reference.delete()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("TransferRepository", "Error parsing signal on $collectionName", e)
                     }
-                } catch (e: Exception) {
-                    Log.e("TransferRepository", "Error parsing signal on $collection", e)
                 }
             }
         }
@@ -73,7 +75,15 @@ object TransferRepository {
 
     suspend fun clearAllSignalsForCurrentUser() {
         val currentUser = auth.currentUser ?: return
-        db.collection(WEBRTC_SIGNALS_COLLECTION).document(currentUser.uid).delete().await()
-        db.collection(APP_EVENTS_COLLECTION).document(currentUser.uid).delete().await()
+        clearSubcollection(WEBRTC_SIGNALS_COLLECTION, currentUser.uid)
+        clearSubcollection(APP_EVENTS_COLLECTION, currentUser.uid)
+    }
+
+    private suspend fun clearSubcollection(collection: String, userId: String) {
+        val subcollectionRef = db.collection(collection).document(userId).collection("signals")
+        val snapshot = subcollectionRef.get().await()
+        for (document in snapshot.documents) {
+            document.reference.delete().await()
+        }
     }
 }
