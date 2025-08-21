@@ -7,13 +7,9 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.activityViewModels
-import com.example.webrtcfiletransfer.data.model.SignalData
-import com.example.webrtcfiletransfer.data.repository.TransferRepository
+import com.example.webrtcfiletransfer.data.model.CallSession
 import com.example.webrtcfiletransfer.databinding.DialogTransferRequestBinding
 import com.example.webrtcfiletransfer.viewmodel.MainViewModel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.text.CharacterIterator
 import java.text.StringCharacterIterator
 
@@ -22,11 +18,8 @@ class TransferRequestDialogFragment : DialogFragment() {
     private var _binding: DialogTransferRequestBinding? = null
     private val binding get() = _binding!!
 
-    // Use the shared MainViewModel
     private val mainViewModel: MainViewModel by activityViewModels()
-
-    private var senderId: String? = null
-    private var filename: String? = null
+    private var callSession: CallSession? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -41,13 +34,13 @@ class TransferRequestDialogFragment : DialogFragment() {
         isCancelable = false
 
         arguments?.let {
-            senderId = it.getString(ARG_SENDER_ID)
-            filename = it.getString(ARG_FILENAME)
-            val filesize = it.getLong(ARG_FILESIZE)
+            callSession = it.getParcelable(ARG_SESSION)
+            val filename = callSession?.fileMetaData?.filename ?: "Unknown file"
+            val filesize = callSession?.fileMetaData?.size ?: 0L
+            val callerId = callSession?.callerId ?: "Unknown user"
 
             val fileSizeReadable = humanReadableByteCountSI(filesize)
-            // In a real app, you'd fetch the username from the senderId
-            binding.tvRequestInfo.text = "From: $senderId\nFile: $filename\nSize: $fileSizeReadable"
+            binding.tvRequestInfo.text = "From: $callerId\nFile: $filename\nSize: $fileSizeReadable"
         }
 
         setupClickListeners()
@@ -55,14 +48,13 @@ class TransferRequestDialogFragment : DialogFragment() {
 
     private fun setupClickListeners() {
         binding.btnAccept.setOnClickListener {
-            senderId?.let { id ->
-                // Send the ACCEPT event via the ViewModel
-                mainViewModel.sendAppEvent(id, SignalData(type = "TRANSFER_ACCEPT"))
+            callSession?.let { session ->
+                // First, update the status to "accepting" to prevent the dialog from reappearing.
+                session.callId?.let { mainViewModel.acceptingCall(it) }
 
-                // Navigate to TransferActivity as the receiver
+                // Then, navigate to TransferActivity as the receiver
                 val intent = Intent(requireContext(), TransferActivity::class.java).apply {
-                    putExtra("target_user_id", id)
-                    putExtra("target_username", filename) // Passing filename as a placeholder for username
+                    putExtra("call_session", session)
                     putExtra("is_caller", false)
                 }
                 startActivity(intent)
@@ -71,9 +63,8 @@ class TransferRequestDialogFragment : DialogFragment() {
         }
 
         binding.btnReject.setOnClickListener {
-            senderId?.let { id ->
-                // Send the REJECT event via the ViewModel
-                mainViewModel.sendAppEvent(id, SignalData(type = "TRANSFER_REJECT"))
+            callSession?.callId?.let { id ->
+                mainViewModel.endCall(id)
                 dismiss()
             }
         }
@@ -99,15 +90,11 @@ class TransferRequestDialogFragment : DialogFragment() {
 
     companion object {
         const val TAG = "TransferRequestDialog"
-        private const val ARG_SENDER_ID = "sender_id"
-        private const val ARG_FILENAME = "filename"
-        private const val ARG_FILESIZE = "filesize"
+        private const val ARG_SESSION = "session"
 
-        fun newInstance(senderId: String, signal: SignalData): TransferRequestDialogFragment {
+        fun newInstance(session: CallSession): TransferRequestDialogFragment {
             val args = Bundle().apply {
-                putString(ARG_SENDER_ID, senderId)
-                putString(ARG_FILENAME, signal.fileMetaData?.filename)
-                putLong(ARG_FILESIZE, signal.fileMetaData?.fileSize ?: 0L)
+                putParcelable(ARG_SESSION, session)
             }
             return TransferRequestDialogFragment().apply {
                 arguments = args

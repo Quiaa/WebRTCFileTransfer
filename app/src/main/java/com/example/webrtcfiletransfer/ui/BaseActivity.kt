@@ -17,14 +17,12 @@ abstract class BaseActivity : AppCompatActivity() {
     }
 
     private fun observeTransferRequests() {
-        mainViewModel.incomingAppEvent.observe(this) { event ->
-            event.getContentIfNotHandled()?.let { (senderId, signal) ->
-                if (signal.type == "TRANSFER_REQUEST") {
-                    // To prevent showing the dialog multiple times, check if it's already shown
-                    if (supportFragmentManager.findFragmentByTag(TransferRequestDialogFragment.TAG) == null) {
-                        val dialog = TransferRequestDialogFragment.newInstance(senderId, signal)
-                        dialog.show(supportFragmentManager, TransferRequestDialogFragment.TAG)
-                    }
+        mainViewModel.incomingCallEvent.observe(this) { event ->
+            event.getContentIfNotHandled()?.let { session ->
+                // To prevent showing the dialog multiple times, check if it's already shown
+                if (supportFragmentManager.findFragmentByTag(TransferRequestDialogFragment.TAG) == null) {
+                    val dialog = TransferRequestDialogFragment.newInstance(session)
+                    dialog.show(supportFragmentManager, TransferRequestDialogFragment.TAG)
                 }
             }
         }

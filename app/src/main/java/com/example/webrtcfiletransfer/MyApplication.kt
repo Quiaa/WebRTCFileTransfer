@@ -6,8 +6,7 @@ import com.example.webrtcfiletransfer.data.repository.TransferRepository
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Initialize global components here.
-        // This ensures the signal listener is started once and for the entire app lifecycle.
-        TransferRepository.startListening()
+        // Global initialization can go here if needed in the future.
+        // The TransferRepository listener is now started by the MainViewModel.
     }
 }

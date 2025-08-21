@@ -2,14 +2,13 @@ package com.example.webrtcfiletransfer.util
 
 import android.app.Application
 import android.util.Log
-import com.example.webrtcfiletransfer.data.model.SignalData
-import com.google.gson.Gson
 import org.webrtc.*
 import java.nio.ByteBuffer
 
 interface WebRTCListener {
     fun onConnectionStateChange(state: PeerConnection.IceConnectionState)
-    fun onSignalNeeded(signal: SignalData)
+    fun onSignalNeeded(sdp: SessionDescription)
+    fun onIceCandidateNeeded(candidate: IceCandidate)
     fun onDataChannelOpened()
     fun onDataChannelMessage(buffer: ByteBuffer)
 }
@@ -21,7 +20,16 @@ class WebRTCClient(
     private val TAG = "WebRTCClient"
 
     private val iceServer = listOf(
-        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun.ekiga.net").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun.ideasip.com").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun.rixtelecom.se").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun.schlund.de").createIceServer(),
+        PeerConnection.IceServer.builder("turn:turn.bistri.com:80").setUsername("homeo").setPassword("homeo").createIceServer(),
+        PeerConnection.IceServer.builder("turn:turn.anyfirewall.com:443?transport=tcp").setUsername("webrtc").setPassword("webrtc").createIceServer(),
+        PeerConnection.IceServer.builder("turn:numb.viagenie.ca").setUsername("webrtc@live.com").setPassword("muazkh").createIceServer()
     )
 
     private val peerConnectionFactory by lazy {
@@ -37,17 +45,12 @@ class WebRTCClient(
 
     private var peerConnection: PeerConnection? = null
     private var dataChannel: DataChannel? = null
+    private var sdpCallback: ((SessionDescription) -> Unit)? = null
 
     private val peerConnectionObserver = object : PeerConnection.Observer {
         override fun onIceCandidate(candidate: IceCandidate?) {
             candidate?.let {
-                val signal = SignalData(
-                    type = "ICE_CANDIDATE",
-                    sdp = it.sdp,
-                    sdpMid = it.sdpMid,
-                    sdpMLineIndex = it.sdpMLineIndex
-                )
-                listener.onSignalNeeded(signal)
+                listener.onIceCandidateNeeded(it)
             }
         }
 
@@ -77,10 +80,7 @@ class WebRTCClient(
     init {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServer)
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, peerConnectionObserver)
-        // Increase the buffer size for larger data transfers.
-        val dcInit = DataChannel.Init().apply {
-            maxRetransmits = 30
-        }
+        val dcInit = DataChannel.Init().apply { ordered = true }
         dataChannel = peerConnection?.createDataChannel("fileChannel", dcInit)
         setupDataChannelObserver()
     }
@@ -104,9 +104,11 @@ class WebRTCClient(
         override fun onCreateSuccess(sdp: SessionDescription?) {
             sdp?.let {
                 peerConnection?.setLocalDescription(this, it)
-                val signalType = if (it.type == SessionDescription.Type.OFFER) "OFFER" else "ANSWER"
-                val signal = SignalData(type = signalType, sdp = it.description)
-                listener.onSignalNeeded(signal)
+                // The callback is used for the OFFER flow to bundle it with metadata
+                // The listener is used for the ANSWER flow
+                sdpCallback?.invoke(it)
+                sdpCallback = null // One-time use
+                listener.onSignalNeeded(it)
             }
         }
         override fun onSetSuccess() {}
@@ -114,7 +116,8 @@ class WebRTCClient(
         override fun onSetFailure(p0: String?) {}
     }
 
-    fun createOffer() {
+    fun createOffer(callback: (SessionDescription) -> Unit) {
+        sdpCallback = callback
         val mediaConstraints = MediaConstraints()
         peerConnection?.createOffer(sdpObserver, mediaConstraints)
     }
@@ -133,7 +136,7 @@ class WebRTCClient(
     }
 
     fun sendData(data: ByteBuffer) {
-        val buffer = DataChannel.Buffer(data, false) // false for text data (JSON)
+        val buffer = DataChannel.Buffer(data, false) // false for binary
         dataChannel?.send(buffer)
     }
 

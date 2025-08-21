@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("kotlin-parcelize")
     // Add the Google services plugin
     id("com.google.gms.google-services")
     // Kotlin Annotation Processing Tool
