@@ -9,23 +9,24 @@ import com.example.webrtcfiletransfer.data.model.*
 import com.example.webrtcfiletransfer.data.repository.MainRepository
 import com.example.webrtcfiletransfer.data.repository.TransferRepository
 import com.example.webrtcfiletransfer.util.Event
+import com.example.webrtcfiletransfer.util.Resource
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
+
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import androidx.lifecycle.*
-import com.example.webrtcfiletransfer.ble.BLEScanner
-import com.example.webrtcfiletransfer.ble.BluetoothClassicScanner
-import com.example.webrtcfiletransfer.ble.DeviceVerifier
-import com.example.webrtcfiletransfer.ble.GenericDevice
+import com.example.webrtcfiletransfer.ble.ClassicVerifier
+import com.example.webrtcfiletransfer.ble.DeviceScanner
+import com.example.webrtcfiletransfer.ble.DiscoveredDevice
 import com.example.webrtcfiletransfer.ble.VerificationResult
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.first
+
 
 
 class MainViewModelFactory(
@@ -50,26 +51,20 @@ class MainViewModel(
 
     private val TAG = "MainViewModel"
     private val transferRepository = TransferRepository
-    private val bleScanner = BLEScanner(bluetoothAdapter)
-    private val classicScanner = BluetoothClassicScanner(application, bluetoothAdapter)
+    private val classicScanner = DeviceScanner(application, bluetoothAdapter)
 
     private val _showNamelessDevices = MutableStateFlow(false)
 
-    val discoveredDevices: LiveData<List<GenericDevice>> = bleScanner.discoveredDevices
-        .combine(classicScanner.discoveredDevices) { bleDevices, classicDevices ->
-            // Combine and deduplicate
-            val allDevices = (bleDevices + classicDevices).distinctBy { it.address }
-            allDevices
-        }
+    val discoveredDevices: LiveData<List<DiscoveredDevice>> = classicScanner.discoveredDevices
         .combine(_showNamelessDevices) { devices, showNameless ->
             val filteredDevices = if (showNameless) {
                 devices
             } else {
-                devices.filter { !it.name.isNullOrEmpty() }
+                devices.filter { !it.device.name.isNullOrEmpty() }
             }
-            filteredDevices.sortedByDescending { it.rssi }
+            // Sorting by RSSI is no longer meaningful as it's not reliable for classic devices
+            filteredDevices
         }
-        .sample(1500) // Sample every 1.5 seconds for a smoother UI
         .asLiveData()
 
     private val _verificationResult = MutableLiveData<Event<VerificationResult>>()
@@ -79,14 +74,11 @@ class MainViewModel(
         _showNamelessDevices.value = show
     }
 
-    fun verifyDevice(address: String) {
+    fun verifyDevice(device: android.bluetooth.BluetoothDevice) {
         viewModelScope.launch {
-            val verifier = DeviceVerifier(getApplication(), address)
+            val verifier = ClassicVerifier(device)
             verifier.result.collect { result ->
                 _verificationResult.postValue(Event(result))
-                if (result is VerificationResult.Success || result is VerificationResult.Failure) {
-                    verifier.close()
-                }
             }
             verifier.startVerification()
         }
@@ -110,12 +102,10 @@ class MainViewModel(
     }
 
     fun startDiscovery() {
-        bleScanner.startScan()
         classicScanner.startDiscovery()
     }
 
     fun stopDiscovery() {
-        bleScanner.stopScan()
         classicScanner.stopDiscovery()
     }
 

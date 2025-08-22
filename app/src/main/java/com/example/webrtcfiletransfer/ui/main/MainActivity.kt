@@ -21,13 +21,12 @@ import com.example.webrtcfiletransfer.util.Resource
 import com.example.webrtcfiletransfer.viewmodel.MainViewModel
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import com.example.webrtcfiletransfer.ble.BLEAdvertiser
 import com.example.webrtcfiletransfer.viewmodel.MainViewModelFactory
 import com.google.firebase.auth.FirebaseAuth
+import com.example.webrtcfiletransfer.ble.ClassicServerManager
 import com.example.webrtcfiletransfer.data.repository.MainRepository
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
-import com.example.webrtcfiletransfer.ble.GattServerManager
 import com.example.webrtcfiletransfer.ble.VerificationResult
 import kotlinx.coroutines.launch
 
@@ -42,8 +41,7 @@ class MainActivity : BaseActivity() {
         )
     }
     private lateinit var userAdapter: UserAdapter
-    private lateinit var bleAdvertiser: BLEAdvertiser
-    private var gattServerManager: GattServerManager? = null
+    private var classicServerManager: ClassicServerManager? = null
 
     private val permissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -69,8 +67,6 @@ class MainActivity : BaseActivity() {
             finish()
             return
         }
-        bleAdvertiser = BLEAdvertiser(bluetoothAdapter)
-
 
         setupRecyclerView()
         setupObservers()
@@ -85,8 +81,7 @@ class MainActivity : BaseActivity() {
     override fun onStop() {
         super.onStop()
         mainViewModel.stopDiscovery()
-        bleAdvertiser.stopAdvertising()
-        gattServerManager?.stopServer()
+        classicServerManager?.stopServer()
     }
 
     private fun startBleOperations() {
@@ -97,11 +92,9 @@ class MainActivity : BaseActivity() {
             return
         }
         mainViewModel.startDiscovery()
-        bleAdvertiser.startAdvertising(uid)
-
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        gattServerManager = GattServerManager(this, bluetoothManager, uid)
-        gattServerManager?.startServer()
+        classicServerManager = ClassicServerManager(bluetoothManager.adapter)
+        classicServerManager?.startServer(uid)
     }
 
     private fun hasPermissions(): Boolean {
@@ -153,12 +146,10 @@ class MainActivity : BaseActivity() {
 
     private fun setupRecyclerView() {
         userAdapter = UserAdapter(emptyList()) { device ->
-            mainViewModel.verifyDevice(device.address)
+            mainViewModel.verifyDevice(device.device)
         }
         binding.rvUsers.adapter = userAdapter
     }
-
-
 
     private fun setupObservers() {
         mainViewModel.discoveredDevices.observe(this) { devices ->
@@ -167,12 +158,12 @@ class MainActivity : BaseActivity() {
 
         mainViewModel.verificationResult.observe(this) { event ->
             event.getContentIfNotHandled()?.let { result ->
+                binding.verificationOverlay.visibility = View.GONE
                 when (result) {
                     is VerificationResult.InProgress -> {
                         binding.verificationOverlay.visibility = View.VISIBLE
                     }
                     is VerificationResult.Success -> {
-                        binding.verificationOverlay.visibility = View.GONE
                         lifecycleScope.launch {
                             val user = mainViewModel.getUserByUid(result.uid)
                             if (user != null) {
@@ -183,12 +174,11 @@ class MainActivity : BaseActivity() {
                                 }
                                 startActivity(intent)
                             } else {
-                                Toast.makeText(this@MainActivity, "User not found in database", Toast.LENGTH_LONG).show()
+                                Toast.makeText(this@MainActivity, "User not found for UID: ${result.uid}", Toast.LENGTH_LONG).show()
                             }
                         }
                     }
                     is VerificationResult.Failure -> {
-                        binding.verificationOverlay.visibility = View.GONE
                         showAppNotInstalledDialog()
                     }
                 }

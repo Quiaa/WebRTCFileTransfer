@@ -11,13 +11,15 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-class BluetoothClassicScanner(
+data class DiscoveredDevice(val device: BluetoothDevice, var rssi: Int)
+
+class DeviceScanner(
     private val context: Context,
     private val bluetoothAdapter: BluetoothAdapter
 ) {
     private val TAG = "ClassicScanner"
-    private val _discoveredDevices = MutableStateFlow<List<GenericDevice>>(emptyList())
-    val discoveredDevices: StateFlow<List<GenericDevice>> = _discoveredDevices
+    private val _discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
+    val discoveredDevices: StateFlow<List<DiscoveredDevice>> = _discoveredDevices
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -34,13 +36,17 @@ class BluetoothClassicScanner(
                         } else {
                             -100 // RSSI not available on older versions this way
                         }
-                        val genericDevice = GenericDevice(it.name, it.address, rssi)
+                        val discoveredDevice = DiscoveredDevice(it, rssi)
                         val currentList = _discoveredDevices.value.toMutableList()
-                        if (currentList.none { d -> d.address == genericDevice.address }) {
-                            currentList.add(genericDevice)
-                            _discoveredDevices.value = currentList
-                            Log.d(TAG, "Found classic device: ${genericDevice.name ?: genericDevice.address}")
+                        val existingDevice = currentList.find { d -> d.device.address == discoveredDevice.device.address }
+                        if (existingDevice != null) {
+                            // Update RSSI if it's a new reading
+                            existingDevice.rssi = rssi
+                        } else {
+                            currentList.add(discoveredDevice)
                         }
+                        _discoveredDevices.value = currentList
+                        Log.d(TAG, "Found classic device: ${discoveredDevice.device.name ?: discoveredDevice.device.address}")
                     }
                 }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
