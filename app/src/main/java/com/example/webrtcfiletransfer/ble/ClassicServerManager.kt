@@ -28,10 +28,14 @@ class ClassicServerManager(
                         val socket = serverSocket?.accept()
                         Log.d(TAG, "Connection accepted. Writing UID.")
                         socket?.outputStream?.write(uid.toByteArray(Charsets.UTF_8))
-                        socket?.close()
+                        socket?.outputStream?.flush()
+                        // The client is responsible for closing the socket after reading.
                     } catch (e: IOException) {
                         Log.e(TAG, "Socket's accept() method failed or connection closed.", e)
-                        break // Exit the loop if the socket is closed.
+                        break // Exit the loop
+                    } catch (e: InterruptedException) {
+                        Log.w(TAG, "Accept thread interrupted.", e)
+                        break // Exit the loop
                     }
                 }
             }

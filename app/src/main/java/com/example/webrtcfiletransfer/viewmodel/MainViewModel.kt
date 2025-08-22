@@ -76,11 +76,10 @@ class MainViewModel(
 
     fun verifyDevice(device: android.bluetooth.BluetoothDevice) {
         viewModelScope.launch {
+            _verificationResult.postValue(Event(VerificationResult.InProgress))
             val verifier = ClassicVerifier(device)
-            verifier.result.collect { result ->
-                _verificationResult.postValue(Event(result))
-            }
-            verifier.startVerification()
+            val result = verifier.startVerification()
+            _verificationResult.postValue(Event(result))
         }
     }
 

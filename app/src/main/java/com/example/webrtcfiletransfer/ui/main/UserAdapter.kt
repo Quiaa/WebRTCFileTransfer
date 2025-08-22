@@ -13,11 +13,17 @@ class UserAdapter(
 
     // ViewHolder class to hold the view for each user item.
     inner class UserViewHolder(val binding: ItemUserBinding) : RecyclerView.ViewHolder(binding.root) {
+        init {
+            binding.root.setOnClickListener {
+                // Ensure the position is valid before processing the click.
+                if (adapterPosition != RecyclerView.NO_POSITION) {
+                    onDeviceClicked(devices[adapterPosition])
+                }
+            }
+        }
+
         fun bind(device: DiscoveredDevice) {
             binding.tvUsername.text = device.device.name ?: device.device.address
-            binding.root.setOnClickListener {
-                onDeviceClicked(device)
-            }
         }
     }
 

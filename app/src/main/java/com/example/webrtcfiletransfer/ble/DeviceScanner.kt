@@ -23,6 +23,7 @@ class DeviceScanner(
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            Log.d(TAG, "BroadcastReceiver onReceive triggered with action: ${intent.action}")
             when (intent.action) {
                 BluetoothDevice.ACTION_FOUND -> {
                     val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -65,8 +66,8 @@ class DeviceScanner(
         filter.addAction(BluetoothDevice.ACTION_FOUND)
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         context.registerReceiver(receiver, filter)
-        bluetoothAdapter.startDiscovery()
-        Log.d(TAG, "Started classic discovery.")
+        val discoveryStarted = bluetoothAdapter.startDiscovery()
+        Log.d(TAG, "Started classic discovery. Result: $discoveryStarted")
     }
 
     fun stopDiscovery() {

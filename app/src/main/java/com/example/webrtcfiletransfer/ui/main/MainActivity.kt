@@ -29,6 +29,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.example.webrtcfiletransfer.ble.VerificationResult
 import kotlinx.coroutines.launch
+import android.content.Context
+import android.location.LocationManager
+import android.provider.Settings
 
 class MainActivity : BaseActivity() {
 
@@ -47,9 +50,27 @@ class MainActivity : BaseActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val allPermissionsGranted = permissions.entries.all { it.value }
             if (allPermissionsGranted) {
-                startBleOperations()
+                checkBluetoothStateAndStart()
             } else {
                 Toast.makeText(this, "Permissions are required for this feature", Toast.LENGTH_LONG).show()
+            }
+        }
+
+    private val enableBluetoothLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                startBleOperations()
+            } else {
+                Toast.makeText(this, "Bluetooth is required to discover devices.", Toast.LENGTH_LONG).show()
+            }
+        }
+
+    private val makeDiscoverableLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_CANCELED) {
+                Toast.makeText(this, "Device is now discoverable.", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Discoverability request cancelled.", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -61,8 +82,7 @@ class MainActivity : BaseActivity() {
         setSupportActionBar(binding.toolbar)
 
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
-        if (bluetoothAdapter == null) {
+        if (bluetoothManager.adapter == null) {
             Toast.makeText(this, "Bluetooth is not available", Toast.LENGTH_LONG).show()
             finish()
             return
@@ -70,11 +90,39 @@ class MainActivity : BaseActivity() {
 
         setupRecyclerView()
         setupObservers()
+    }
 
+    override fun onResume() {
+        super.onResume()
+        // Perform checks every time the activity is resumed.
         if (hasPermissions()) {
-            startBleOperations()
+            checkBluetoothStateAndStart()
         } else {
+            // This will request permissions if they are missing.
+            // If already requested, it won't do anything until the user responds.
             requestPermissions()
+        }
+    }
+
+    private fun checkBluetoothStateAndStart() {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothAdapter = bluetoothManager.adapter
+        if (!bluetoothAdapter.isEnabled) {
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            // For Android 12 and above, BLUETOOTH_CONNECT permission is required to request enabling Bluetooth.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                    enableBluetoothLauncher.launch(enableBtIntent)
+                } else {
+                    // This case should ideally not be hit if permissions are handled correctly before calling this.
+                    Toast.makeText(this, "Bluetooth connect permission not granted.", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // For older versions, no special permission is required.
+                enableBluetoothLauncher.launch(enableBtIntent)
+            }
+        } else {
+            startBleOperations()
         }
     }
 
@@ -85,6 +133,11 @@ class MainActivity : BaseActivity() {
     }
 
     private fun startBleOperations() {
+        if (!isLocationEnabled()) {
+            showLocationRequiredDialog()
+            return
+        }
+
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid == null) {
             Toast.makeText(this, "You are not logged in.", Toast.LENGTH_LONG).show()
@@ -95,6 +148,26 @@ class MainActivity : BaseActivity() {
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         classicServerManager = ClassicServerManager(bluetoothManager.adapter)
         classicServerManager?.startServer(uid)
+    }
+
+    private fun isLocationEnabled(): Boolean {
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
+
+    private fun showLocationRequiredDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Location Services Required")
+            .setMessage("Bluetooth scanning requires that you enable Location Services.")
+            .setPositiveButton("Enable Location") { dialog, _ ->
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun hasPermissions(): Boolean {
@@ -135,6 +208,10 @@ class MainActivity : BaseActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.menu_refresh_discoverable -> {
+                refreshAndMakeDiscoverable()
+                true
+            }
             R.id.menu_sign_out -> {
                 mainViewModel.signOut()
                 goToLoginActivity()
@@ -142,6 +219,26 @@ class MainActivity : BaseActivity() {
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun refreshAndMakeDiscoverable() {
+        // Manually trigger the full check and start flow.
+        // This will handle BT state, location state, and then call startDiscovery().
+        checkBluetoothStateAndStart()
+        Toast.makeText(this, "Refreshing device list...", Toast.LENGTH_SHORT).show()
+
+        // Request to be discoverable
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Bluetooth advertise permission not granted. Cannot be discoverable.", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+
+        val discoverableIntent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+            putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300)
+        }
+        makeDiscoverableLauncher.launch(discoverableIntent)
     }
 
     private fun setupRecyclerView() {
