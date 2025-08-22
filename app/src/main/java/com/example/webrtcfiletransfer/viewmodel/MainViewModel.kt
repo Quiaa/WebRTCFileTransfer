@@ -9,57 +9,88 @@ import com.example.webrtcfiletransfer.data.model.*
 import com.example.webrtcfiletransfer.data.repository.MainRepository
 import com.example.webrtcfiletransfer.data.repository.TransferRepository
 import com.example.webrtcfiletransfer.util.Event
-import com.example.webrtcfiletransfer.util.Resource
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
-import com.example.webrtcfiletransfer.ble.NearbyUser
-import kotlinx.coroutines.flow.combine
+import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import androidx.lifecycle.*
 import com.example.webrtcfiletransfer.ble.BLEScanner
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
+import com.example.webrtcfiletransfer.ble.BluetoothClassicScanner
+import com.example.webrtcfiletransfer.ble.DeviceVerifier
+import com.example.webrtcfiletransfer.ble.GenericDevice
+import com.example.webrtcfiletransfer.ble.VerificationResult
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.sample
+
 
 class MainViewModelFactory(
+    private val application: Application,
     private val bluetoothAdapter: BluetoothAdapter,
     private val mainRepository: MainRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MainViewModel(bluetoothAdapter, mainRepository) as T
+            return MainViewModel(application, bluetoothAdapter, mainRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
 
-
-
 class MainViewModel(
+    application: Application,
     bluetoothAdapter: BluetoothAdapter,
     private val mainRepository: MainRepository
-) : ViewModel() {
+) : AndroidViewModel(application) {
 
     private val TAG = "MainViewModel"
     private val transferRepository = TransferRepository
-
     private val bleScanner = BLEScanner(bluetoothAdapter)
-    val nearbyUsers: LiveData<List<NearbyUser>> = bleScanner.discoveredUsers
-        .combine(
-            bleScanner.discoveredUsers.map { users -> users.map { it.uid } }
-                .flatMapLatest { uids ->
-                    mainRepository.getUsersByUids(uids)
-                }
-        ) { discoveredUsers, usersFromDb ->
-            discoveredUsers.mapNotNull { discoveredUser ->
-                usersFromDb.find { it.uid == discoveredUser.uid }
-                    ?.let { user -> NearbyUser(user, discoveredUser.rssi) }
+    private val classicScanner = BluetoothClassicScanner(application, bluetoothAdapter)
+
+    private val _showNamelessDevices = MutableStateFlow(false)
+
+    val discoveredDevices: LiveData<List<GenericDevice>> = bleScanner.discoveredDevices
+        .combine(classicScanner.discoveredDevices) { bleDevices, classicDevices ->
+            // Combine and deduplicate
+            val allDevices = (bleDevices + classicDevices).distinctBy { it.address }
+            allDevices
+        }
+        .combine(_showNamelessDevices) { devices, showNameless ->
+            val filteredDevices = if (showNameless) {
+                devices
+            } else {
+                devices.filter { !it.name.isNullOrEmpty() }
             }
-        }.asLiveData()
+            filteredDevices.sortedByDescending { it.rssi }
+        }
+        .sample(1500) // Sample every 1.5 seconds for a smoother UI
+        .asLiveData()
+
+    private val _verificationResult = MutableLiveData<Event<VerificationResult>>()
+    val verificationResult: LiveData<Event<VerificationResult>> = _verificationResult
+
+    fun setShowNamelessDevices(show: Boolean) {
+        _showNamelessDevices.value = show
+    }
+
+    fun verifyDevice(address: String) {
+        viewModelScope.launch {
+            val verifier = DeviceVerifier(getApplication(), address)
+            verifier.result.collect { result ->
+                _verificationResult.postValue(Event(result))
+                if (result is VerificationResult.Success || result is VerificationResult.Failure) {
+                    verifier.close()
+                }
+            }
+            verifier.startVerification()
+        }
+    }
 
     // LiveData for incoming call events, observed by MainActivity to show a dialog.
     private val _incomingCallEvent = MutableLiveData<Event<CallSession>>()
@@ -78,12 +109,14 @@ class MainViewModel(
         listenForIncomingCalls()
     }
 
-    fun startBleScan() {
+    fun startDiscovery() {
         bleScanner.startScan()
+        classicScanner.startDiscovery()
     }
 
-    fun stopBleScan() {
+    fun stopDiscovery() {
         bleScanner.stopScan()
+        classicScanner.stopDiscovery()
     }
 
     private fun listenForIncomingCalls() {
@@ -151,6 +184,10 @@ class MainViewModel(
         viewModelScope.launch {
             transferRepository.deleteCall(callId)
         }
+    }
+
+    suspend fun getUserByUid(uid: String): User? {
+        return mainRepository.getUsersByUids(listOf(uid)).first().firstOrNull()
     }
 
     fun signOut() {

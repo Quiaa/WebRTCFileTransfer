@@ -3,24 +3,28 @@ package com.example.webrtcfiletransfer.ui.main
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.example.webrtcfiletransfer.ble.NearbyUser
-import com.example.webrtcfiletransfer.data.model.User
+import com.example.webrtcfiletransfer.ble.GenericDevice
 import com.example.webrtcfiletransfer.databinding.ItemUserBinding
 import kotlin.math.pow
 
 class UserAdapter(
-    private var users: List<NearbyUser>,
-    private val onUserClicked: (User) -> Unit
+    private var devices: List<GenericDevice>,
+    private val onDeviceClicked: (GenericDevice) -> Unit
 ) : RecyclerView.Adapter<UserAdapter.UserViewHolder>() {
 
     // ViewHolder class to hold the view for each user item.
     inner class UserViewHolder(val binding: ItemUserBinding) : RecyclerView.ViewHolder(binding.root) {
-        fun bind(nearbyUser: NearbyUser) {
-            binding.tvUsername.text = nearbyUser.user.username
-            binding.tvRssi.text = "${nearbyUser.rssi} dBm"
-            binding.tvDistance.text = "${calculateDistance(nearbyUser.rssi)} m"
+        fun bind(device: GenericDevice) {
+            binding.tvUsername.text = device.name ?: device.address
+            binding.tvRssi.text = "${device.rssi} dBm"
+            val distance = calculateDistance(device.rssi)
+            if (distance > 0) {
+                binding.tvDistance.text = String.format("%.3f m", distance)
+            } else {
+                binding.tvDistance.text = "N/A"
+            }
             binding.root.setOnClickListener {
-                onUserClicked(nearbyUser.user)
+                onDeviceClicked(device)
             }
         }
     }
@@ -31,14 +35,14 @@ class UserAdapter(
     }
 
     override fun onBindViewHolder(holder: UserViewHolder, position: Int) {
-        holder.bind(users[position])
+        holder.bind(devices[position])
     }
 
-    override fun getItemCount(): Int = users.size
+    override fun getItemCount(): Int = devices.size
 
-    // Function to update the list of users in the adapter.
-    fun updateUsers(newUsers: List<NearbyUser>) {
-        users = newUsers
+    // Function to update the list of devices in the adapter.
+    fun updateDevices(newDevices: List<GenericDevice>) {
+        devices = newDevices
         notifyDataSetChanged()
     }
 

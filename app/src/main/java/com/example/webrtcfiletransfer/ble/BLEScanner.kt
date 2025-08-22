@@ -10,39 +10,37 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.*
 
-data class DiscoveredUser(
-    val uid: String,
-    val rssi: Int,
-    val address: String
+data class GenericDevice(
+    val name: String?,
+    val address: String,
+    val rssi: Int
 )
 
 class BLEScanner(
     private val bluetoothAdapter: BluetoothAdapter
 ) {
     private val scanner = bluetoothAdapter.bluetoothLeScanner
-    private val serviceUuid: ParcelUuid = ParcelUuid(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
 
-    val discoveredUsers = MutableStateFlow<List<DiscoveredUser>>(emptyList())
+    val discoveredDevices = MutableStateFlow<List<GenericDevice>>(emptyList())
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             result?.let {
-                val serviceData = it.scanRecord?.getServiceData(serviceUuid)
-                val uid = serviceData?.toString(Charsets.UTF_8) ?: return@let
-                val rssi = it.rssi
+                val deviceName = it.device.name
                 val address = it.device.address
+                val rssi = it.rssi
 
-                val discoveredUser = DiscoveredUser(uid, rssi, address)
-                val currentList = discoveredUsers.value.toMutableList()
+                val genericDevice = GenericDevice(deviceName, address, rssi)
+                val currentList = discoveredDevices.value.toMutableList()
                 val existingDevice = currentList.find { d -> d.address == address }
 
                 if (existingDevice != null) {
                     val index = currentList.indexOf(existingDevice)
-                    currentList[index] = discoveredUser
+                    currentList[index] = genericDevice
                 } else {
-                    currentList.add(discoveredUser)
+                    currentList.add(genericDevice)
                 }
-                discoveredUsers.value = currentList
+                discoveredDevices.value = currentList
             }
         }
 
@@ -56,18 +54,12 @@ class BLEScanner(
     }
 
     fun startScan() {
-        val filters = listOf(
-            ScanFilter.Builder()
-                .setServiceUuid(serviceUuid)
-                .build()
-        )
-
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        scanner?.startScan(filters, settings, scanCallback)
-        Log.d("BLEScanner", "Scan started")
+        scanner?.startScan(null, settings, scanCallback)
+        Log.d("BLEScanner", "Scan started for all devices")
     }
 
     fun stopScan() {

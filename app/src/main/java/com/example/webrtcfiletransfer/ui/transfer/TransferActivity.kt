@@ -38,6 +38,7 @@ class TransferActivity : BaseActivity(), WebRTCListener {
     private lateinit var binding: ActivityTransferBinding
     override val mainViewModel: MainViewModel by viewModels {
         com.example.webrtcfiletransfer.viewmodel.MainViewModelFactory(
+            application,
             (getSystemService(BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter,
             com.example.webrtcfiletransfer.data.repository.MainRepository()
         )
