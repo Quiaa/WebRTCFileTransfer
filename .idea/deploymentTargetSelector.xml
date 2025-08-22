@@ -3,8 +3,8 @@
   <component name="deploymentTargetSelector">
     <selectionStates>
       <SelectionState runConfigName="app">
-        <option name="selectionMode" value="DIALOG" />
-        <DropdownSelection timestamp="2025-08-19T14:04:25.195427100Z">
+        <option name="selectionMode" value="DROPDOWN" />
+        <DropdownSelection timestamp="2025-08-22T05:58:37.880490Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\Quiaa\.android\avd\Medium_Phone_2.avd" />
@@ -15,12 +15,12 @@
           <targets>
             <Target type="DEFAULT_BOOT">
               <handle>
-                <DeviceId pluginId="PhysicalDevice" identifier="serial=RZ8N305WZJX" />
+                <DeviceId pluginId="PhysicalDevice" identifier="serial=73e9587" />
               </handle>
             </Target>
             <Target type="DEFAULT_BOOT">
               <handle>
-                <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\Quiaa\.android\avd\Medium_Phone_2.avd" />
+                <DeviceId pluginId="PhysicalDevice" identifier="serial=RZ8N305WZJX" />
               </handle>
             </Target>
           </targets>

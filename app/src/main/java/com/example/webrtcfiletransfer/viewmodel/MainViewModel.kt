@@ -15,15 +15,51 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
+import com.example.webrtcfiletransfer.ble.NearbyUser
+import kotlinx.coroutines.flow.combine
+import android.bluetooth.BluetoothAdapter
+import androidx.lifecycle.*
+import com.example.webrtcfiletransfer.ble.BLEScanner
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
-class MainViewModel : ViewModel() {
+class MainViewModelFactory(
+    private val bluetoothAdapter: BluetoothAdapter,
+    private val mainRepository: MainRepository
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return MainViewModel(bluetoothAdapter, mainRepository) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
+
+
+class MainViewModel(
+    bluetoothAdapter: BluetoothAdapter,
+    private val mainRepository: MainRepository
+) : ViewModel() {
 
     private val TAG = "MainViewModel"
-    private val mainRepository = MainRepository()
     private val transferRepository = TransferRepository
 
-    private val _usersState = MutableLiveData<Resource<List<User>>>()
-    val usersState: LiveData<Resource<List<User>>> = _usersState
+    private val bleScanner = BLEScanner(bluetoothAdapter)
+    val nearbyUsers: LiveData<List<NearbyUser>> = bleScanner.discoveredUsers
+        .combine(
+            bleScanner.discoveredUsers.map { users -> users.map { it.uid } }
+                .flatMapLatest { uids ->
+                    mainRepository.getUsersByUids(uids)
+                }
+        ) { discoveredUsers, usersFromDb ->
+            discoveredUsers.mapNotNull { discoveredUser ->
+                usersFromDb.find { it.uid == discoveredUser.uid }
+                    ?.let { user -> NearbyUser(user, discoveredUser.rssi) }
+            }
+        }.asLiveData()
 
     // LiveData for incoming call events, observed by MainActivity to show a dialog.
     private val _incomingCallEvent = MutableLiveData<Event<CallSession>>()
@@ -40,7 +76,14 @@ class MainViewModel : ViewModel() {
 
     init {
         listenForIncomingCalls()
-        getUsers()
+    }
+
+    fun startBleScan() {
+        bleScanner.startScan()
+    }
+
+    fun stopBleScan() {
+        bleScanner.stopScan()
     }
 
     private fun listenForIncomingCalls() {
@@ -58,18 +101,6 @@ class MainViewModel : ViewModel() {
         transferRepository.observeIceCandidates(callId, isCaller).onEach { candidate ->
             _remoteIceCandidateEvent.postValue(Event(candidate))
         }.launchIn(viewModelScope)
-    }
-
-    fun getUsers() {
-        viewModelScope.launch {
-            _usersState.value = Resource.Loading()
-            try {
-                val users = mainRepository.getUsers()
-                _usersState.value = Resource.Success(users)
-            } catch (e: Exception) {
-                _usersState.value = Resource.Error(e.message ?: "Failed to fetch users.")
-            }
-        }
     }
 
     fun acceptingCall(callId: String) {

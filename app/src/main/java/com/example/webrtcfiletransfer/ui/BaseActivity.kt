@@ -9,7 +9,7 @@ import com.example.webrtcfiletransfer.viewmodel.MainViewModel
 abstract class BaseActivity : AppCompatActivity() {
 
     // Get a reference to the shared MainViewModel
-    private val mainViewModel: MainViewModel by viewModels()
+    abstract val mainViewModel: MainViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

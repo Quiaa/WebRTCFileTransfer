@@ -23,6 +23,26 @@ class MainRepository {
             .filter { it.uid != currentUserId }
     }
 
+    fun getUsersByUids(uids: List<String>): Flow<List<User>> = callbackFlow {
+        if (uids.isEmpty()) {
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
+
+        val listener = db.collection("users")
+            .whereIn("uid", uids)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val users = snapshot?.documents?.mapNotNull { it.toObject(User::class.java) } ?: emptyList()
+                trySend(users)
+            }
+        awaitClose { listener.remove() }
+    }
+
     fun signOut() {
         auth.signOut()
     }

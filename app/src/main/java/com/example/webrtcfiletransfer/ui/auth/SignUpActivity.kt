@@ -6,12 +6,12 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
 import com.example.webrtcfiletransfer.databinding.ActivitySignupBinding
-import com.example.webrtcfiletransfer.ui.BaseActivity
+import androidx.appcompat.app.AppCompatActivity
 import com.example.webrtcfiletransfer.ui.main.MainActivity
 import com.example.webrtcfiletransfer.util.Resource
 import com.example.webrtcfiletransfer.viewmodel.AuthViewModel
 
-class SignUpActivity : BaseActivity() {
+class SignUpActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySignupBinding
     private val viewModel: AuthViewModel by viewModels()

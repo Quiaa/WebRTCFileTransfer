@@ -36,7 +36,12 @@ class TransferActivity : BaseActivity(), WebRTCListener {
 
     private val TAG = "TransferActivity"
     private lateinit var binding: ActivityTransferBinding
-    private val mainViewModel: MainViewModel by viewModels()
+    override val mainViewModel: MainViewModel by viewModels {
+        com.example.webrtcfiletransfer.viewmodel.MainViewModelFactory(
+            (getSystemService(BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter,
+            com.example.webrtcfiletransfer.data.repository.MainRepository()
+        )
+    }
     private val gson = Gson()
 
     private lateinit var webRTCClient: WebRTCClient
