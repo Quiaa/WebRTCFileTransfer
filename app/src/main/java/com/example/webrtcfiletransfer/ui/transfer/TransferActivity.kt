@@ -20,11 +20,14 @@ import com.example.webrtcfiletransfer.viewmodel.MainViewModel
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import org.webrtc.SessionDescription
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
@@ -57,7 +60,8 @@ class TransferActivity : BaseActivity(), WebRTCListener {
     private val iceCandidateBuffer = mutableListOf<IceCandidate>()
 
     // For receiving file
-    private var fileOutputStream: ByteArrayOutputStream? = null
+    private var fileOutputStream: FileOutputStream? = null
+    private var tempFile: File? = null
     private var receivedFilename: String? = null
     private var totalFileSize: Long = 0
     private var bytesReceived: Long = 0
@@ -75,8 +79,8 @@ class TransferActivity : BaseActivity(), WebRTCListener {
     private val saveFileLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
-                fileOutputStream?.toByteArray()?.let { content ->
-                    saveFileToUri(uri, content)
+                tempFile?.let { file ->
+                    copyFileToUri(file, uri)
                 }
             }
         }
@@ -164,6 +168,8 @@ class TransferActivity : BaseActivity(), WebRTCListener {
                 val metadata = FileMetaData(filename, fileSize)
                 binding.tvConnectionStatus.text = "Status: Calling..."
 
+                // Create the data channel before creating the offer
+                webRTCClient.createDataChannel()
                 Log.d(TAG, "($role) Creating offer...")
                 webRTCClient.createOffer { offerSdp ->
                     targetUserId?.let {
@@ -250,6 +256,7 @@ class TransferActivity : BaseActivity(), WebRTCListener {
                 try {
                     val filename = getFileName(uri) ?: "unknown_file"
                     val fileSize = getFileSize(uri) ?: 0L
+                    Log.d(TAG, "Initiating send for file: $filename, size: $fileSize")
                     // 1. Send start control message
                     val startMsg = ControlMessage("start", filename, fileSize)
                     val startJson = gson.toJson(startMsg)
@@ -261,19 +268,31 @@ class TransferActivity : BaseActivity(), WebRTCListener {
                         binding.tvConnectionStatus.text = "Status: Sending..."
                     }
 
+                    // Define a buffer threshold
+                    val bufferThreshold = 1 * 1024 * 1024L // 1MB
+
                     // 2. Send file in chunks
                     val inputStream = contentResolver.openInputStream(uri)
                     val buffer = ByteArray(65536) // 64KB chunks
                     var bytesRead: Int
                     var totalBytesSent: Long = 0
                     while (inputStream?.read(buffer).also { bytesRead = it ?: -1 } != -1) {
-                        val chunk = ByteBuffer.wrap(buffer, 0, bytesRead)
-                        webRTCClient.sendData(chunk)
+                        // Backpressure implementation
+                        while (webRTCClient.bufferedAmount.value > bufferThreshold) {
+                            Log.d(TAG, "Buffer is full, delaying... Amount: ${webRTCClient.bufferedAmount.value}")
+                            delay(100)
+                        }
+
+                        // Allocate a new buffer for each chunk and copy data to avoid race conditions
+                        val chunkToSend = ByteBuffer.allocate(bytesRead).put(buffer, 0, bytesRead)
+                        chunkToSend.flip()
+                        webRTCClient.sendData(chunkToSend)
                         totalBytesSent += bytesRead
                         val progress = totalBytesSent.toInt()
                         runOnUiThread { binding.pbTransferProgress.progress = progress }
                     }
                     inputStream?.close()
+                    Log.d(TAG, "File sending loop finished. Total bytes sent: $totalBytesSent, expected size: $fileSize")
 
                     // 3. Send end control message
                     val endMsg = ControlMessage("end", null, null)
@@ -303,10 +322,14 @@ class TransferActivity : BaseActivity(), WebRTCListener {
 
             when (msg.type) {
                 "start" -> {
-                    fileOutputStream = ByteArrayOutputStream()
                     receivedFilename = msg.filename
                     totalFileSize = msg.size ?: 0
                     bytesReceived = 0
+
+                    // Create a temporary file in the cache directory
+                    tempFile = File(cacheDir, receivedFilename ?: "received_file")
+                    fileOutputStream = FileOutputStream(tempFile)
+
                     runOnUiThread {
                         binding.pbTransferProgress.visibility = View.VISIBLE
                         binding.pbTransferProgress.max = totalFileSize.toInt()
@@ -314,8 +337,8 @@ class TransferActivity : BaseActivity(), WebRTCListener {
                     }
                 }
                 "end" -> {
-                    val fileBytes = fileOutputStream?.toByteArray()
                     fileOutputStream?.close()
+                    fileOutputStream = null
                     runOnUiThread {
                         binding.llReceivedFile.visibility = View.VISIBLE
                         binding.tvFileInfo.text = "Received: $receivedFilename"
@@ -326,24 +349,43 @@ class TransferActivity : BaseActivity(), WebRTCListener {
             }
         } catch (e: Exception) {
             // If JSON parsing fails, it's a file chunk
-            fileOutputStream?.write(data)
-            bytesReceived += data.size
-            val progress = bytesReceived.toInt()
-            runOnUiThread { binding.pbTransferProgress.progress = progress }
+            try {
+                fileOutputStream?.write(data)
+                bytesReceived += data.size
+                val progress = bytesReceived.toInt()
+                runOnUiThread { binding.pbTransferProgress.progress = progress }
+            } catch (e: IOException) {
+                Log.e(TAG, "IOException while writing to temp file. Aborting transfer.", e)
+                webRTCClient.close()
+                runOnUiThread {
+                    Toast.makeText(this, "Failed to write file to disk. Transfer aborted.", Toast.LENGTH_LONG).show()
+                    binding.tvConnectionStatus.text = "Status: FAILED"
+                    tempFile?.delete()
+                    tempFile = null
+                }
+            }
         }
     }
     //endregion
 
     //region Utility Functions
-    private fun saveFileToUri(uri: Uri, content: ByteArray) {
+    private fun copyFileToUri(sourceFile: File, destinationUri: Uri) {
         try {
-            contentResolver.openOutputStream(uri)?.use { it.write(content) }
+            contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
+                sourceFile.inputStream().use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
             Toast.makeText(this, "File saved successfully!", Toast.LENGTH_LONG).show()
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to save file", e)
+        } finally {
+            // Clean up
             binding.llReceivedFile.visibility = View.GONE
             fileOutputStream = null
             receivedFilename = null
-        } catch (e: IOException) {
-            Log.e(TAG, "Failed to save file", e)
+            sourceFile.delete()
+            tempFile = null
         }
     }
 

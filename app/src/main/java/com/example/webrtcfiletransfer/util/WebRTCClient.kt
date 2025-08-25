@@ -2,6 +2,9 @@ package com.example.webrtcfiletransfer.util
 
 import android.app.Application
 import android.util.Log
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.webrtc.*
 import java.nio.ByteBuffer
 
@@ -47,6 +50,9 @@ class WebRTCClient(
     private var dataChannel: DataChannel? = null
     private var sdpCallback: ((SessionDescription) -> Unit)? = null
 
+    private val _bufferedAmount = MutableStateFlow(0L)
+    val bufferedAmount: StateFlow<Long> = _bufferedAmount.asStateFlow()
+
     private val peerConnectionObserver = object : PeerConnection.Observer {
         override fun onIceCandidate(candidate: IceCandidate?) {
             candidate?.let {
@@ -80,6 +86,10 @@ class WebRTCClient(
     init {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServer)
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, peerConnectionObserver)
+    }
+
+    fun createDataChannel() {
+        Log.d(TAG, "Creating a new data channel.")
         val dcInit = DataChannel.Init().apply { ordered = true }
         dataChannel = peerConnection?.createDataChannel("fileChannel", dcInit)
         setupDataChannelObserver()
@@ -87,7 +97,9 @@ class WebRTCClient(
 
     private fun setupDataChannelObserver() {
         dataChannel?.registerObserver(object : DataChannel.Observer {
-            override fun onBufferedAmountChange(p0: Long) {}
+            override fun onBufferedAmountChange(amount: Long) {
+                _bufferedAmount.value = amount
+            }
             override fun onStateChange() {
                 Log.d(TAG, "DataChannel state is: ${dataChannel?.state()}")
                 if (dataChannel?.state() == DataChannel.State.OPEN) {
@@ -137,7 +149,10 @@ class WebRTCClient(
 
     fun sendData(data: ByteBuffer) {
         val buffer = DataChannel.Buffer(data, false) // false for binary
-        dataChannel?.send(buffer)
+        if (dataChannel?.send(buffer) == true) {
+            // Immediately update the buffered amount after sending
+            _bufferedAmount.value = dataChannel?.bufferedAmount() ?: 0L
+        }
     }
 
     fun close() {

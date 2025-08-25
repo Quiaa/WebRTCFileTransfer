@@ -129,6 +129,10 @@ class MainActivity : BaseActivity() {
     override fun onStop() {
         super.onStop()
         mainViewModel.stopDiscovery()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
         classicServerManager?.stopServer()
     }
 
@@ -145,9 +149,11 @@ class MainActivity : BaseActivity() {
             return
         }
         mainViewModel.startDiscovery()
-        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        classicServerManager = ClassicServerManager(bluetoothManager.adapter)
-        classicServerManager?.startServer(uid)
+        if (classicServerManager == null) {
+            val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+            classicServerManager = ClassicServerManager(bluetoothManager.adapter)
+            classicServerManager?.startServer(uid)
+        }
     }
 
     private fun isLocationEnabled(): Boolean {
