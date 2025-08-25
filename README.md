@@ -1,14 +1,15 @@
 # WebRTC File Transfer Android App
 
-This is a native Android application that enables users to transfer files directly between nearby devices using WebRTC. The app uses Bluetooth Low Energy (BLE) for device discovery and Firebase for signaling and user authentication.
+This is a native Android application that enables users to transfer files directly between nearby devices using WebRTC. The app uses Classic Bluetooth for device discovery and Firebase for signaling and user authentication.
 
 ## How It Works
 
 The application orchestrates a peer-to-peer connection between two devices in three main phases:
 
-1.  **Device Discovery (Bluetooth LE):**
-    *   When a user logs in, the app starts advertising its presence via BLE.
-    *   Simultaneously, it scans for other nearby devices that are also advertising.
+1.  **Device Discovery (Classic Bluetooth):**
+    *   The app uses classic Bluetooth discovery to find nearby devices. One device starts a server socket (`listenUsingRfcommWithServiceRecord`) to listen for connections.
+    *   Other devices scan for nearby Bluetooth devices using `startDiscovery()`.
+    *   When a connection is made, a unique user ID is exchanged to identify the users on Firebase for the next step.
     *   Discovered users are displayed in a list on the main screen.
 
 2.  **Signaling (Firebase Firestore):**
@@ -24,7 +25,7 @@ The application orchestrates a peer-to-peer connection between two devices in th
 ## Features
 
 *   **User Authentication:** Secure sign-up and login functionality using Firebase Authentication.
-*   **Nearby Device Discovery:** Automatically discovers nearby users with the app open using Bluetooth LE.
+*   **Nearby Device Discovery:** Automatically discovers nearby users with the app open using Classic Bluetooth.
 *   **High-Speed File Transfer:** Leverages WebRTC data channels for fast and direct peer-to-peer file transfer.
 *   **Modern Android Architecture:** Built with Kotlin, Coroutines, and the MVVM pattern for a scalable and maintainable codebase.
 *   **Transfer Progress:** Real-time updates on the file transfer status.
@@ -37,7 +38,7 @@ The application orchestrates a peer-to-peer connection between two devices in th
 *   **Real-time Communication:** [WebRTC](https://webrtc.org/)
 *   **Signaling & Database:** [Google Firebase Firestore](https://firebase.google.com/docs/firestore)
 *   **Authentication:** [Google Firebase Authentication](https://firebase.google.com/docs/auth)
-*   **Device Discovery:** [Bluetooth Low Energy (BLE)](https://developer.android.com/guide/topics/connectivity/bluetooth-le)
+*   **Device Discovery:** [Classic Bluetooth](https://developer.android.com/guide/topics/connectivity/bluetooth)
 *   **UI:** Android Views with [ViewBinding](https://developer.android.com/topic/libraries/view-binding)
 *   **Dependency Injection:** Manual (via ViewModel factories)
 
@@ -47,7 +48,7 @@ To build and run this project yourself, follow these steps:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/webrtc-file-transfer.git
+    git clone https://github.com/Quiaa/WebRTCFileTransfer.git
     ```
 
 2.  **Set up Firebase:**
